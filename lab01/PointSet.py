@@ -79,7 +79,7 @@ class PointSet:
         gini_results = []
         for feature_index in range(len(self.features[0])):
             #We'll use an attribute if the feature is categorical, to store the value such as the associated split maximizes the gini gain
-            if self.types[feature_index] == FeaturesTypes.BOOLEAN:    
+            if self.types[feature_index] == FeaturesTypes.BOOLEAN: #Running time is O(n) (no optimization needed) 
                 child1_features = []
                 child2_features = []
                 child1_labels = []
@@ -108,34 +108,31 @@ class PointSet:
             elif self.types[feature_index] == FeaturesTypes.CLASSES:
                 #Split if the feature is categorical (first find the max value, then do the splits) (we do 1 versus others)
                 #We don't save every gain for every value, but only the value of each categorical feature maximizing the gain (so at the end, gini_results contains one value for each feature)
+                #We use an optimization similar to the one for real features : we count the labels for each possible value,
+                #and then we compute the gini with the counts stored in dictionnaries, which allows a running time between O(n) and O(n^2) (depends on the sum() Python function) (so Q6 is done much faster)
                 max_cat = int(max([cat for cat in self.features[:,feature_index]]))
                 current_max_gini = 0
                 current_value_maximizing = 0
-                for cat in range(max_cat+1):
-                    child1_features = []
-                    child2_features = []
-                    child1_labels = []
-                    child2_labels = []
-                    #We can now do the split
-                    for i,f in enumerate(self.features):
-                        if f[feature_index] == cat:
-                            child1_features.append(f)
-                            child1_labels.append(self.labels[i])
-                        else:
-                            child2_features.append(f)
-                            child2_labels.append(self.labels[i])
-                    if len(child1_features) < self.min_split_points or len(child2_features) < self.min_split_points:
+                gini_start = self.get_gini()
+                label_counter_true = {k: 0 for k in range(max_cat+1)}
+                label_counter_false = {k: 0 for k in range(max_cat+1)}
+                for idx, point in enumerate(self.features):
+                    if self.labels[idx]:
+                        label_counter_true[point[feature_index]] += 1
+                    else:
+                        label_counter_false[point[feature_index]] += 1
+                #Now we determine the best split
+                for value in range(max_cat+1):
+                    n1 = label_counter_true[value] + label_counter_false[value]
+                    n2 = n - n1
+                    if n1 < self.min_split_points or n2 < self.min_split_points:
                         continue
-                    child1 = PointSet(child1_features,child1_labels,self.types)
-                    child2 = PointSet(child2_features,child2_labels,self.types)
-                    gini1 = child1.get_gini()
-                    gini2 = child2.get_gini()
-                    n1 = len(child1.labels)
-                    n2 = len(child2.labels)
+                    gini1 = 1 - ((label_counter_true[value])**2 + (label_counter_false[value])**2)/(n1**2)
+                    gini2 = 1 - ((sum(label_counter_true.values())-label_counter_true[value])**2 + (sum(label_counter_false.values())-label_counter_false[value])**2)/(n2**2)
                     gini_split = (n1/n)*gini1 + (n2/n)*gini2
-                    gini_gain = self.get_gini() - gini_split
+                    gini_gain = gini_start - gini_split
                     if gini_gain > current_max_gini:
-                        current_value_maximizing = cat
+                        current_value_maximizing = value
                         current_max_gini = gini_gain
                 gini_results.append((feature_index, round(current_max_gini,7)))
                 self.maximizing_feature[feature_index] = current_value_maximizing
