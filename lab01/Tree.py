@@ -2,6 +2,8 @@ from typing import List
 
 from PointSet import PointSet, FeaturesTypes
 
+import numpy as np
+
 class Tree:
     """A decision Tree
 
@@ -15,7 +17,9 @@ class Tree:
                  labels: List[bool],
                  types: List[FeaturesTypes],
                  h: int = 1,
-                 min_split_points: int = 1):
+                 min_split_points: int = 1,
+                 beta: float = 0
+                 ):
         """
         Parameters
         ----------
@@ -30,10 +34,14 @@ class Tree:
             types : List[FeaturesTypes]
                 The types of the features.
         """
+        self.parent = None
         self.points = PointSet(features, labels, types)
         self.points.min_split_points = min_split_points
         self.types = types
         self.h = h
+        self.min_split_points = min_split_points
+        self.beta = beta
+        self.update_counter = 0
         if self.h == 0:
             self.guess_label = self.most_frequent_label(labels)
             return
@@ -71,8 +79,8 @@ class Tree:
                     self.guess_label = self.most_frequent_label(child1_labels)
                     self.h = 0
                     return
-                self.child1 = Tree(child1_features, child1_labels, types, self.h-1, min_split_points)
-                self.child2 = Tree(child2_features, child2_labels, types, self.h-1, min_split_points)
+                self.child1 = Tree(child1_features, child1_labels, types, self.h-1, min_split_points, self.beta)
+                self.child2 = Tree(child2_features, child2_labels, types, self.h-1, min_split_points, self.beta)
 
             elif self.types[feature_index] == FeaturesTypes.CLASSES:
                 for i,f in enumerate(features):
@@ -90,8 +98,8 @@ class Tree:
                     self.guess_label = self.most_frequent_label(child1_labels)
                     self.h = 0
                     return
-                self.child1 = Tree(child1_features, child1_labels, types, self.h-1, min_split_points)
-                self.child2 = Tree(child2_features, child2_labels, types, self.h-1, min_split_points)
+                self.child1 = Tree(child1_features, child1_labels, types, self.h-1, min_split_points, self.beta)
+                self.child2 = Tree(child2_features, child2_labels, types, self.h-1, min_split_points, self.beta)
 
             elif self.types[feature_index] == FeaturesTypes.REAL:
                 for i,f in enumerate(features):
@@ -109,9 +117,12 @@ class Tree:
                     self.guess_label = self.most_frequent_label(child1_labels)
                     self.h = 0
                     return
-                self.child1 = Tree(child1_features, child1_labels, types, self.h-1, min_split_points)
-                self.child2 = Tree(child2_features, child2_labels, types, self.h-1, min_split_points)
-
+                self.child1 = Tree(child1_features, child1_labels, types, self.h-1, min_split_points, self.beta)
+                self.child2 = Tree(child2_features, child2_labels, types, self.h-1, min_split_points, self.beta)
+            self.child1.parent = self
+            self.child2.parent = self
+            self.child1.is_left_child = True
+            self.child2.is_left_child = False
 
     def decide(self, features: List[float]) -> bool:
         """Give the guessed label of the tree to an unlabeled point
@@ -155,3 +166,52 @@ class Tree:
             if not labels[i]: c1 += 1
             else: c2 += 1
         return 0 if c1>c2 else 1
+
+    #For the following two functions : the only problem seems to be a memory problem (references, pointers etc.)
+
+    def add_training_point(self, features: List[float], label: bool) -> None:
+        self.update_counter += 1
+        npfeatures = np.asarray(features).reshape(1,self.points.features.shape[1])
+        self.points.features = np.concatenate((self.points.features, npfeatures), axis=0)
+        self.points.labels.append(label)
+        #If the update counter exceeds the threshold, reconstruct the subtree
+        if self.update_counter >= self.beta*len(self.points.labels):
+            temp = Tree(self.points.features, self.points.labels, self.types, self.h, self.min_split_points, self.beta)    
+            if self.parent != None and self.is_left_child:
+                self.parent.child1 = temp
+            elif self.parent != None:
+                self.parent.child2 = temp
+        #Propagation of the new point
+        elif self.h > 0:
+            if self.types[self.deciding_feature] == FeaturesTypes.BOOLEAN:
+                return self.child1.add_training_point(features, label) if not features[self.deciding_feature] else self.child2.add_training_point(features, label)
+            elif self.types[self.deciding_feature] == FeaturesTypes.CLASSES:
+                return self.child1.add_training_point(features, label) if features[self.deciding_feature] == self.points.maximizing_feature[self.deciding_feature] else self.child2.add_training_point(features, label)
+            elif self.types[self.deciding_feature] == FeaturesTypes.REAL:
+                return self.child1.add_training_point(features, label) if features[self.deciding_feature] < self.points.maximizing_feature[self.deciding_feature] else self.child2.add_training_point(features, label)
+        
+    def del_training_point(self, features: List[float], label: bool) -> None:
+        self.update_counter += 1
+        npfeatures = np.asarray(features).reshape(1, self.points.features.shape[1])
+        #First, propagate before removing if this is not a leaf and if the removing won't trigger an update
+        #We go along the tree, like in decide, but to retrieve the point to remove
+        if self.h > 0 and self.update_counter < self.beta*(len(self.points.features)-1):
+            if self.types[self.deciding_feature] == FeaturesTypes.BOOLEAN:
+                self.child1.del_training_point(features, label) if not features[self.deciding_feature] else self.child2.del_training_point(features, label)
+            elif self.types[self.deciding_feature] == FeaturesTypes.CLASSES:
+                self.child1.del_training_point(features, label) if features[self.deciding_feature] == self.points.maximizing_feature[self.deciding_feature] else self.child2.del_training_point(features, label)
+            elif self.types[self.deciding_feature] == FeaturesTypes.REAL:
+                self.child1.del_training_point(features, label) if features[self.deciding_feature] < self.points.maximizing_feature[self.deciding_feature] else self.child2.del_training_point(features, label)
+        #Removal of the point
+        for i in range(len(self.points.features)):
+            if np.array_equal(self.points.features[i], npfeatures) and self.points.labels[i] == label:
+                np.delete(self.points.features, i, axis=0)
+                self.points.labels.pop(i)
+                break
+        #If the update counter exceeds the threshold, reconstruct the subtree
+        if self.update_counter >= self.beta*len(self.points.features):
+            temp = Tree(self.points.features, self.points.labels, self.types, self.h, self.min_split_points, self.beta)    
+            if self.parent != None and self.is_left_child:
+                self.parent.child1 = temp
+            elif self.parent != None:
+                self.parent.child2 = temp

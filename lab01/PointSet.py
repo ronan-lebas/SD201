@@ -40,7 +40,8 @@ class PointSet:
         """
         self.types = types
         self.features = np.array(features)
-        self.labels = np.array(labels)
+        #self.labels = np.array(labels)
+        self.labels = labels
         self.min_split_points = 1
 
     def get_gini(self) -> float:
