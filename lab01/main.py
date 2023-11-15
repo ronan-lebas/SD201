@@ -17,6 +17,7 @@ files_eval =\
     ['../input_data/cont_eval_data1.csv','../input_data/cont_eval_data2.csv','../input_data/cont_eval_data3.csv'],
     ['../input_data/cont_eval_data2.csv','../input_data/cont_eval_data3.csv',],
     ['../input_data/cont_eval_data4.csv'],
+    ['../input_data/inc_eval_data1.csv', '../input_data/inc_eval_data2.csv'],
 ]
 
 files_debug =\
@@ -31,6 +32,7 @@ files_debug =\
     ['../input_data/cont_debug_data1.csv','../input_data/cont_debug_data2.csv','../input_data/cont_debug_data3.csv'],
     ['../input_data/cont_debug_data2.csv','../input_data/cont_debug_data3.csv',],
     ['../input_data/cont_debug_data4.csv',],
+    ['../input_data/inc_debug_data1.csv', '../input_data/inc_debug_data2.csv', ],
 ]
 
 def exercice1(files_to_study):
@@ -87,6 +89,24 @@ def exercice7(files_to_study):
         results += [list(ps_instance.get_best_gain()) + [ps_instance.get_best_threshold()]]
     return results
 
+def exercice11(files_to_study, **tree_params):
+    results = []
+    tree_size_proportion = .3
+    for file in files_to_study:
+        features, labels, types = load_data(file)
+        training_nb = int(len(features)*tree_size_proportion)
+        current_tree = Tree(features[:training_nb], labels[:training_nb], types, **tree_params)
+        expected_results = labels[training_nb:]
+        actual_results = []
+        for i, (point_features, point_label)\
+                in enumerate(zip(features[training_nb:], labels[training_nb:])):
+            actual_results += [current_tree.decide(point_features)]
+            current_tree.add_training_point(point_features, point_label)
+            del_point_feat, del_point_lab = features[i], labels[i]
+            current_tree.del_training_point(del_point_feat, del_point_lab)
+        results += [[evaluation.F1_score(expected_results, actual_results)]]
+    return results
+
 if __name__ == '__main__':
     exercice = int(sys.argv[2])
     if sys.argv[1] == 'eval':
@@ -115,4 +135,6 @@ if __name__ == '__main__':
         results = exercice4(files_to_study, h=5, min_split_points=8)
     elif exercice == 10:
         results = exercice4(files_to_study, h=5, min_split_points=8)
+    elif exercice == 11:
+        results = exercice11(files_to_study, h=3, min_split_points=3, beta=.5)
     write_results(results, dest_file)
